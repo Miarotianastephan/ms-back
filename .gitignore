@@ -1,2 +1,5 @@
-2k16_Vibes/
 node_modules/
+2k16_Vibes/
+.env
+.env.*
+!.env.example

@@ -25,7 +25,15 @@ npm install
 npm run dev
 ```
 
-Le serveur écoute sur `http://localhost:4000`. Le script `dev` lance `nodemon`, qui redémarre le serveur quand son code change.
+Par défaut, le serveur écoute sur `http://localhost:4000`. Le script `dev` lance `nodemon`, qui redémarre le serveur quand le code ou `.env` change.
+
+Les variables backend sont chargées depuis `ms-back/.env` avec `dotenv`. Le fichier local `.env` est ignoré par Git ; `.env.example` contient le modèle sans valeur personnelle.
+
+| Variable | Valeur par défaut | Utilisation |
+|---|---:|---|
+| `PORT` | `4000` | Port HTTP du serveur Express. |
+| `SONORA_DOWNLOAD_DIR` | Vide, donc `os.tmpdir()/sonora-downloads` | Racine de stockage. Utiliser un chemin absolu si tu veux un emplacement précis. |
+| `SONORA_FILE_RETENTION_HOURS` | `24` | Nombre d’heures avant suppression des fichiers terminés. |
 
 Dans `ms-front/` :
 
@@ -36,15 +44,31 @@ npm run dev
 
 Vite affiche l’adresse locale du frontend dans le terminal (habituellement `http://localhost:5173`). L’interface utilise actuellement `http://localhost:4000` comme adresse du backend.
 
+Pour un test sur un autre appareil ou un déploiement, configure `VITE_API_URL` côté frontend avec l’adresse joignable du backend avant de lancer ou construire Vite. Sans cette variable, l’interface utilise `http://localhost:4000`.
+
 ## Organisation du backend
 
-Le point d’entrée est [index.js](./index.js). Il configure Express, CORS (sans restriction d’origine dans la configuration actuelle) et le décodage JSON, crée le dossier `downloads/` s’il est absent, puis expose trois routes.
+Le point d’entrée est [index.js](./index.js). Il configure Express, CORS (sans restriction d’origine dans la configuration actuelle) et le décodage JSON, crée la racine du stockage si elle est absente, puis expose cinq routes.
 
 | Route | Rôle |
 |---|---|
 | `POST /download` | Crée une demande et démarre `yt-dlp`. Répond tout de suite avec un identifiant. |
 | `GET /downloads` | Renvoie l’état courant de toutes les demandes, sous forme d’instantané JSON. |
 | `GET /downloads/events` | Ouvre le flux SSE et envoie les nouveaux états au navigateur. |
+| `GET /downloads/:downloadId/items/:itemId/file` | Envoie un morceau terminé comme pièce jointe au navigateur. |
+| `GET /downloads/:downloadId/archive` | Envoie les titres terminés d’une playlist dans une archive ZIP. |
+
+### Où sont enregistrés les fichiers
+
+Le backend n’écrit plus les MP3 dans le dossier du code. Le répertoire racine est défini par `SONORA_DOWNLOAD_DIR`. Sans cette variable, le serveur utilise le dossier temporaire du système (`os.tmpdir()/sonora-downloads`). Les fichiers sont supprimés 24 heures après la fin du traitement par défaut ; `SONORA_FILE_RETENTION_HOURS` permet de régler ce délai. `PORT` configure le port HTTP et vaut `4000` par défaut. Ces trois variables sont déclarées dans `.env`. Exemple pour personnaliser le stockage et conserver les fichiers 48 heures :
+
+```bash
+SONORA_DOWNLOAD_DIR=/chemin/absolu/sonora SONORA_FILE_RETENTION_HOURS=48 npm run dev
+```
+
+Chaque demande a son propre sous-dossier UUID, sous le dossier `folderName` choisi dans l’interface. Ce sous-dossier est un nom simple, sans séparateur de chemin. Un manifeste JSON dans le dossier de chaque demande conserve l’URL, le titre de playlist, les titres terminés et les noms des fichiers.
+
+Au démarrage, le backend lit ces manifestes, vérifie les fichiers sur disque, puis recharge la liste avant d’ouvrir les routes SSE et HTTP. Les tâches qui étaient en cours sont marquées **interrompues** ; les titres terminés restent téléchargeables. Pour les anciens dossiers sans manifeste, le serveur récupère les MP3 présents, mais l’URL source n’est pas connue. Les dossiers UUID expirés sont supprimés au démarrage suivant.
 
 ### Créer un téléchargement
 
@@ -58,7 +82,7 @@ Le frontend envoie une requête similaire à celle-ci :
 }
 ```
 
-`folderName` est facultatif. Sans valeur, les fichiers sont enregistrés dans `ms-back/downloads/`. Une valeur comme `ma-musique` sert à construire un chemin personnalisé avec `path.join`. Le backend ne normalise pas encore cette valeur comme nom de dossier : ne considère pas cette entrée comme une frontière de sécurité si le serveur est exposé à des clients non fiables.
+`folderName` est facultatif. Sans valeur, le dossier `downloads/` est utilisé sous la racine de stockage configurée. Une valeur comme `ma-musique` crée un sous-dossier de regroupement. Elle ne choisit pas un dossier sur l’appareil de l’utilisateur : ce dossier reste sur la machine qui exécute le backend.
 
 Le backend crée un objet de téléchargement avec un identifiant UUID et l’ajoute au début du tableau en mémoire `downloads`. Il répond sans attendre la fin du travail :
 
@@ -149,6 +173,18 @@ data: {"download":{"id":"…","items":[…]}}
 
 Le navigateur peut se déconnecter puis se reconnecter. `EventSource` réessaie automatiquement ; à chaque nouvelle connexion, le backend envoie un `snapshot` pour resynchroniser l’état. `GET /downloads` reste disponible pour inspection ou pour les clients qui n’utilisent pas SSE.
 
+### Envoyer un MP3 au navigateur
+
+Quand yt-dlp émet `SONORA_FINISHED`, le backend garde le nom de fichier dans l’objet du morceau. Après la fin de conversion, l’interface construit une URL avec l’identifiant de la tâche et celui du morceau, puis le navigateur appelle `GET /downloads/:downloadId/items/:itemId/file`.
+
+La route vérifie que la tâche et le morceau existent, que l’état du morceau est `completed` et que le fichier est encore présent. `res.download()` envoie le MP3 avec un nom de fichier de pièce jointe ; le navigateur gère ensuite l’enregistrement sur l’appareil de l’utilisateur. Dans une application déployée, les octets sont transférés depuis le serveur vers le client. Le serveur ne peut pas enregistrer arbitrairement dans les dossiers locaux du client.
+
+Le bouton **Partager** du frontend est proposé seulement si le navigateur indique qu’il accepte le partage de fichiers. Il récupère le MP3, crée un objet `File`, puis appelle `navigator.share()` avec ce fichier. Le système d’exploitation ouvre sa feuille de partage ; l’utilisateur choisit ensuite une application ou une destination. Le bouton **Télécharger** reste disponible comme chemin standard, notamment sur les navigateurs qui ne prennent pas en charge le partage de fichiers.
+
+Pour les playlists terminées, le bouton **Télécharger en ZIP** appelle `/downloads/:downloadId/archive`. `archiver` ajoute les MP3 un à un dans le flux de réponse, avec leur position en préfixe de nom ; l’archive n’est donc pas assemblée dans un gros tampon mémoire avant l’envoi. Pour une playlist partiellement réussie, seuls les titres terminés sont inclus.
+
+Le partage de fichiers via Web Share dépend du navigateur et de l’appareil. Il demande une interaction explicite de l’utilisateur et doit être vérifié sur les appareils ciblés. Le navigateur peut charger le fichier en mémoire pour créer l’objet `File` partagé ; pour des fichiers volumineux, le téléchargement classique est à privilégier.
+
 ### Côté frontend
 
 La liaison se trouve dans [`ms-front/src/App.jsx`](../ms-front/src/App.jsx) :
@@ -172,7 +208,16 @@ Le rendu utilise `items` pour les barres et détails par morceau. Les demandes p
 
 ## Limites actuelles
 
-- Les demandes et leurs états ne sont conservés qu’en mémoire. Un redémarrage du backend vide `downloads` ; les fichiers déjà téléchargés restent sur le disque.
-- Le backend ne gère pas encore l’annulation, la persistance, ni une file d’exécution qui limiterait les téléchargements simultanés.
+- Les manifestes JSON et les MP3 sont stockés sur le même disque local. Cette persistance convient à une seule instance du backend, pas à plusieurs serveurs partageant une liste de tâches.
+- Les fichiers sont conservés 24 heures par défaut, durée configurable avec `SONORA_FILE_RETENTION_HOURS`. Régler ce délai selon les besoins et la capacité disque de l’hébergement.
+- Le backend ne gère pas encore l’annulation ni une file d’exécution qui limiterait les téléchargements simultanés.
 - SSE transmet des données du serveur vers le navigateur. Les actions utilisateur (par exemple lancer un téléchargement) continuent d’utiliser des requêtes HTTP normales.
 - La validation backend de l’URL est minimale (`http` en préfixe). La validation YouTube plus stricte est faite par l’interface ; toute validation de sécurité côté serveur devra être ajoutée séparément si le backend est exposé à d’autres clients.
+
+## Améliorations à envisager plus tard
+
+- Remplacer les manifestes JSON par SQLite ou PostgreSQL si plusieurs instances doivent partager et mettre à jour le même historique.
+- Remplacer le disque local par S3, R2 ou un autre stockage objet si le backend est déployé sur des serveurs éphémères ou répartis.
+- Ajouter authentification et contrôle d’accès aux routes de téléchargement avant d’exposer le service publiquement.
+- Ajouter une file d’attente, l’annulation des tâches et une interface de nettoyage des fichiers avant expiration.
+- Ajouter éventuellement un sélecteur de dossier local avec l’API File System Access, en gardant le téléchargement navigateur standard pour les appareils non compatibles.

@@ -6,15 +6,17 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon --watch index.js --watch .env index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "archiver": "^8.0.0",
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
+    "dotenv": "^18.0.10",
     "express": "^5.1.0",
     "uuid": "^11.1.0"
   },
