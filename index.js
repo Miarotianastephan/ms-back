@@ -373,6 +373,8 @@ function parseYtDlpLine(line, download, tracksByKey) {
   }
 }
 
+app.get('/health', (req, res) => res.send('ok ms-back-api'));
+
 app.get("/downloads/events", (req, res) => {
   res.set({
     "Content-Type": "text/event-stream",
