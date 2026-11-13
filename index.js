@@ -20,7 +20,8 @@ const downloads = [];
 const eventClients = new Set();
 const downloadDirectories = new Map();
 
-app.use(cors());
+// app.use(cors());
+app.use(cors({ origin: process.env.FRONTEND_URL }));
 app.use(bodyParser.json());
 
 fs.mkdirSync(STORAGE_DIR, { recursive: true });
