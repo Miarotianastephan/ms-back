@@ -594,7 +594,11 @@ app.get("/downloads/:downloadId/items/:itemId/file", (req, res) => {
 app.get("/downloads/:downloadId/archive", (req, res) => {
   const download = downloads.find((item) => item.id === req.params.downloadId);
   if (!download) return res.status(404).json({ error: "Téléchargement introuvable" });
-  if (!download.isPlaylist) return res.status(400).json({ error: "Cette demande ne contient pas de playlist" });
+  // A multi-track job is archiveable even if older or inconsistent metadata missed the playlist flag.
+  const hasMultipleTracks = download.playlistTotal > 1 || download.items.length > 1;
+  if (!download.isPlaylist && !hasMultipleTracks) {
+    return res.status(400).json({ error: "Cette demande ne contient pas de playlist" });
+  }
   if (!["completed", "completed_with_errors"].includes(download.status)) {
     return res.status(409).json({ error: "La playlist n’est pas encore terminée" });
   }
