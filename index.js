@@ -5,7 +5,19 @@ const { spawn } = require("child_process");
 const { ZipArchive } = require("archiver");
 const os = require("os");
 const path = require("path");
-const fs = require("fs");
+const fs = require('fs');
+// Cookies are used to bypass YouTube's age and region restrictions, but they are not required for most downloads.
+const COOKIES_SRC = '/etc/secrets/cookies.txt';
+const COOKIES_TMP = '/tmp/cookies.txt';
+// yt-dlp réécrit le fichier de cookies : on travaille sur une copie modifiable
+if (fs.existsSync(COOKIES_SRC)) {
+  fs.copyFileSync(COOKIES_SRC, COOKIES_TMP);
+  console.log('Cookies chargés');
+} else {
+  console.log('Aucun fichier de cookies trouvé');
+}
+
+
 const { v4: uuidv4 } = require("uuid");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
@@ -473,6 +485,7 @@ app.post("/download", (req, res) => {
     "--progress-template", `download:${progressTemplate}`,
     "--progress-template", `postprocess:${postprocessTemplate}`,
     "--print", `after_move:${finishedTemplate}`,
+    ...(fs.existsSync(COOKIES_TMP) ? ['--cookies', COOKIES_TMP] : []),
     "-o", outputPath,
   ];
   if (!isPlaylist) args.push("--no-playlist");
