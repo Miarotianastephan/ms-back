@@ -484,12 +484,24 @@ app.post("/download", (req, res) => {
     const combined = buffers[streamName] + chunk.toString();
     const lines = combined.split(/\r?\n/);
     buffers[streamName] = lines.pop() || "";
-    for (const line of lines) parseYtDlpLine(line, download, tracksByKey);
+    for (const line of lines) {
+      // Keep actionable yt-dlp diagnostics in Render logs without printing signed/query URLs.
+      if (streamName === "stderr" && /error|warning|traceback|ffmpeg|postprocess/i.test(line)) {
+        const safeLine = line.replace(/https?:\/\/\S+/gi, "[URL masquée]");
+        console.error(`[yt-dlp ${download.id}] ${safeLine}`);
+      }
+      parseYtDlpLine(line, download, tracksByKey);
+    }
   };
 
   process.stdout.on("data", (chunk) => consumeOutput("stdout", chunk));
   process.stderr.on("data", (chunk) => consumeOutput("stderr", chunk));
   process.on("error", (error) => {
+    console.error(`[yt-dlp ${download.id}] Impossible de démarrer le processus`, {
+      message: error.message,
+      code: error.code,
+      path: error.path,
+    });
     download.status = "error";
     download.error = error.message;
     if (download.items.length === 0) {
@@ -502,9 +514,20 @@ app.post("/download", (req, res) => {
     broadcast("update", download);
   });
 
-  process.on("close", (code) => {
+  process.on("close", (code, signal) => {
     for (const streamName of Object.keys(buffers)) {
-      if (buffers[streamName]) parseYtDlpLine(buffers[streamName], download, tracksByKey);
+      if (buffers[streamName]) {
+        const finalLine = buffers[streamName];
+        if (streamName === "stderr" && /error|warning|traceback|ffmpeg|postprocess/i.test(finalLine)) {
+          const safeLine = finalLine.replace(/https?:\/\/\S+/gi, "[URL masquée]");
+          console.error(`[yt-dlp ${download.id}] ${safeLine}`);
+        }
+        parseYtDlpLine(finalLine, download, tracksByKey);
+      }
+    }
+
+    if (code !== 0) {
+      console.error(`[yt-dlp ${download.id}] Processus terminé`, { code, signal });
     }
 
     if (code === 0) {
