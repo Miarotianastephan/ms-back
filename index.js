@@ -461,6 +461,8 @@ app.post("/download", (req, res) => {
   ].join("\t");
 
   const args = [
+    // Deno is yt-dlp's recommended JavaScript runtime for YouTube's challenge scripts.
+    "--js-runtimes", "deno",
     "-t", "mp3",
     "--newline",
     "--embed-thumbnail",
