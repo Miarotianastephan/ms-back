@@ -19,6 +19,7 @@ const FILE_RETENTION_MS = (Number.isFinite(configuredRetentionHours) && configur
 const downloads = [];
 const eventClients = new Set();
 const downloadDirectories = new Map();
+const YT_DLP_PATH = path.join(__dirname, "bin", "yt-dlp");
 
 // app.use(cors());
 app.use(cors({ origin: process.env.FRONTEND_URL }));
@@ -474,7 +475,7 @@ app.post("/download", (req, res) => {
   args.push(url);
 
   // spawn passes each option as a separate argument, so the URL and output path are never evaluated by a shell.
-  const process = spawn("yt-dlp", args, { cwd: jobDirectory, windowsHide: true });
+  const process = spawn(YT_DLP_PATH, args, { cwd: jobDirectory, windowsHide: true });
   download.status = "downloading";
   broadcast("update", download);
 
