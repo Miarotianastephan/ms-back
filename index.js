@@ -19,10 +19,12 @@ const FILE_RETENTION_MS = (Number.isFinite(configuredRetentionHours) && configur
 const downloads = [];
 const eventClients = new Set();
 const downloadDirectories = new Map();
-const YT_DLP_PATH = path.join(__dirname, "bin", "yt-dlp");
+const YT_DLP_PATH = process.env.NODE_ENV === "production"
+  ? path.join(__dirname, "bin", "yt-dlp")
+  : "yt-dlp";
 
 // app.use(cors());
-app.use(cors({ origin: process.env.FRONTEND_URL }));
+app.use(cors({ origin: process.env.FRONTEND_URL || "*" }));
 app.use(bodyParser.json());
 
 fs.mkdirSync(STORAGE_DIR, { recursive: true });
